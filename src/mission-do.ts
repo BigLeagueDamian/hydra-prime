@@ -2,7 +2,7 @@ import type { Env } from './index';
 import type { MissionState, Phase } from './types';
 
 const LEGAL: Record<Phase, Phase[]> = {
-  registered: ['provisioning', 'scanning', 'failed', 'terminated'],
+  registered: ['provisioning', 'failed', 'terminated'],
   provisioning: ['scanning', 'failed', 'terminated'],
   scanning: ['hypothesizing', 'failed', 'terminated'],
   hypothesizing: ['planning', 'scanning', 'failed', 'terminated'],

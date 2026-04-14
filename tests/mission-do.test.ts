@@ -22,13 +22,15 @@ describe('MissionDO', () => {
     expect(state.phase).toBe('registered');
   });
 
-  it('transitions to scanning on /transition', async () => {
+  it('transitions through legal sequence registered → provisioning → scanning', async () => {
     await callDo('m_test_2', 'init', { method: 'POST', body: JSON.stringify({
       fingerprint: 'fp2', platform: 'linux',
       target_allowlist: ['origin', 'kvm2'], strict_gold: false,
       budget_paid_usd: 10, deadline_ms: Date.now() + 86_400_000,
     })});
-    const res = await callDo('m_test_2', 'transition', { method: 'POST', body: JSON.stringify({ to: 'scanning' }) });
+    let res = await callDo('m_test_2', 'transition', { method: 'POST', body: JSON.stringify({ to: 'provisioning' }) });
+    expect(res.status).toBe(200);
+    res = await callDo('m_test_2', 'transition', { method: 'POST', body: JSON.stringify({ to: 'scanning' }) });
     expect(res.status).toBe(200);
     const after = await (await callDo('m_test_2', 'state')).json() as { phase: string };
     expect(after.phase).toBe('scanning');
@@ -41,6 +43,16 @@ describe('MissionDO', () => {
       budget_paid_usd: 10, deadline_ms: Date.now() + 86_400_000,
     })});
     const res = await callDo('m_test_3', 'transition', { method: 'POST', body: JSON.stringify({ to: 'completed' }) });
+    expect(res.status).toBe(409);
+  });
+
+  it('rejects illegal direct skip registered → scanning', async () => {
+    await callDo('m_test_4', 'init', { method: 'POST', body: JSON.stringify({
+      fingerprint: 'fp4', platform: 'linux',
+      target_allowlist: ['origin'], strict_gold: false,
+      budget_paid_usd: 10, deadline_ms: Date.now() + 86_400_000,
+    })});
+    const res = await callDo('m_test_4', 'transition', { method: 'POST', body: JSON.stringify({ to: 'scanning' }) });
     expect(res.status).toBe(409);
   });
 });
