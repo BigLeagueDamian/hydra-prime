@@ -100,3 +100,34 @@ export function applyObservation(h: Hypothesis, obs: Observation, tick: number):
   };
   return softmaxPosteriors(next);
 }
+
+export function isConverged(h: Hypothesis): boolean {
+  const top = topCandidate(h);
+  return !!top && top.posterior > h.convergeThreshold;
+}
+
+export function isCollapsed(h: Hypothesis): boolean {
+  const top = topCandidate(h);
+  return !!top && top.posterior < h.collapseThreshold;
+}
+
+export function isThrashing(h: Hypothesis, recentTicks: number): boolean {
+  const top = topCandidate(h);
+  if (!top) return false;
+  const recent = top.evidence.filter(e => e.tick > 0).slice(-recentTicks);
+  let flips = 0;
+  let prevSign = 0;
+  for (const e of recent) {
+    const sign = Math.sign(e.llr);
+    if (sign !== 0 && prevSign !== 0 && sign !== prevSign) flips++;
+    if (sign !== 0) prevSign = sign;
+  }
+  return flips >= 2;
+}
+
+export function recomputeStatus(h: Hypothesis): Hypothesis {
+  if (isConverged(h)) return { ...h, status: 'converged' };
+  if (isCollapsed(h)) return { ...h, status: 'collapsed' };
+  if (h.candidates.length > 0) return { ...h, status: 'converging' };
+  return { ...h, status: 'open' };
+}
