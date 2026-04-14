@@ -1,5 +1,6 @@
 import type { Env } from './index';
 import type { MissionState, Phase } from './types';
+import type { Hypothesis } from './engine/beliefs';
 
 const LEGAL: Record<Phase, Phase[]> = {
   registered: ['provisioning', 'failed', 'terminated'],
@@ -55,7 +56,7 @@ export class MissionDO {
       wall_clock_started_ms: Date.now(),
       wall_clock_deadline_ms: body.deadline_ms,
       tick: 0,
-      beliefs: {} as Record<string, never>,
+      beliefs: {} as Record<string, Hypothesis>,
       jump_chain: ['origin'],
       target_allowlist: body.target_allowlist,
     };

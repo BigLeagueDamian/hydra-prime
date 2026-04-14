@@ -39,7 +39,6 @@ export interface MissionState {
   wall_clock_started_ms: number;
   wall_clock_deadline_ms: number;
   tick: number;
-  // @ts-expect-error forward-ref to engine/beliefs (created in Task 11; remove this directive then)
   beliefs: Record<string, import('./engine/beliefs').Hypothesis>;
   jump_chain: string[];
   target_allowlist: string[];
