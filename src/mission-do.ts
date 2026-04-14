@@ -31,6 +31,7 @@ export class MissionDO {
     if (route === 'init') return this.init(req);
     if (route === 'state') return this.getState();
     if (route === 'transition') return this.transition(req);
+    if (route === 'next-directive') return this.nextDirective();
     return new Response('not found', { status: 404 });
   }
 
@@ -76,5 +77,14 @@ export class MissionDO {
     this.mission.phase = to;
     await this.state.storage.put('mission', this.mission);
     return Response.json(this.mission);
+  }
+
+  private async nextDirective(): Promise<Response> {
+    if (!this.mission) return new Response('not initialized', { status: 404 });
+    // Stub action picker — replaced by tick engine in Task 27.
+    const op_id = `op_${crypto.randomUUID().slice(0, 8)}`;
+    this.mission.tick += 1;
+    await this.state.storage.put('mission', this.mission);
+    return Response.json({ id: op_id, op: 'yield', sleep_s: 5 });
   }
 }
