@@ -32,6 +32,7 @@ export class MissionDO {
     if (route === 'state') return this.getState();
     if (route === 'transition') return this.transition(req);
     if (route === 'next-directive') return this.nextDirective();
+    if (route === 'ingest') return this.ingest(req);
     return new Response('not found', { status: 404 });
   }
 
@@ -86,5 +87,13 @@ export class MissionDO {
     this.mission.tick += 1;
     await this.state.storage.put('mission', this.mission);
     return Response.json({ id: op_id, op: 'yield', sleep_s: 5 });
+  }
+
+  private async ingest(req: Request): Promise<Response> {
+    if (!this.mission) return new Response('not initialized', { status: 404 });
+    const env = await req.json();
+    // Phase F (Task 27) replaces this with rule-engine update.
+    await this.state.storage.put(`tick:${this.mission.tick}`, env);
+    return new Response('ok');
   }
 }

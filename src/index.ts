@@ -1,5 +1,6 @@
 import { handleRegister } from './endpoints/register';
 import { handlePoll } from './endpoints/poll';
+import { handleReport } from './endpoints/report';
 export { MissionDO } from './mission-do';
 
 export interface Env {
@@ -15,6 +16,7 @@ export default {
     if (url.pathname === '/v1/health') return new Response('ok');
     if (url.pathname === '/v1/register' && req.method === 'POST') return handleRegister(req, env);
     if (url.pathname === '/v1/poll' && req.method === 'GET') return handlePoll(req, env);
+    if (url.pathname === '/v1/report' && req.method === 'POST') return handleReport(req, env);
     if (url.pathname === '/v1/admin/mission/start' && req.method === 'POST') {
       const body = await req.json() as {
         fingerprint_expected: string; target_allowlist: string[];
