@@ -10,6 +10,7 @@ export default defineWorkersConfig({
         // Tests use distinct mission IDs so in-memory state is sufficient.
         miniflare: {
           unsafeEphemeralDurableObjects: true,
+          bindings: { AI_MOCK: '1' },
         },
       },
     },

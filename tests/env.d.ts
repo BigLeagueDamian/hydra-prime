@@ -5,5 +5,7 @@ declare module 'cloudflare:test' {
     HYDRA_KV: KVNamespace;
     MISSION_DO: DurableObjectNamespace;
     ADMIN_KEY?: string;
+    AI?: Ai;
+    AI_MOCK?: string;
   }
 }
