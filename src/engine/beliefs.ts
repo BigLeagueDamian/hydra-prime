@@ -60,3 +60,14 @@ export function topCandidate(h: Hypothesis): Candidate | undefined {
   if (h.candidates.length === 0) return undefined;
   return [...h.candidates].sort((a, b) => b.posterior - a.posterior)[0];
 }
+
+export function softmaxPosteriors(h: Hypothesis): Hypothesis {
+  if (h.candidates.length === 0) return h;
+  const maxLogit = Math.max(...h.candidates.map(c => c.logit));
+  const exps = h.candidates.map(c => Math.exp(c.logit - maxLogit));
+  const sum = exps.reduce((s, x) => s + x, 0);
+  return {
+    ...h,
+    candidates: h.candidates.map((c, i) => ({ ...c, posterior: exps[i]! / sum })),
+  };
+}
