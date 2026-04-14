@@ -1,6 +1,7 @@
 import type { Env } from './index';
 import type { MissionState, Phase } from './types';
 import type { Hypothesis } from './engine/beliefs';
+import { buildInitialQueue, pickAction, ingestObservations } from './engine/tick';
 
 const LEGAL: Record<Phase, Phase[]> = {
   registered: ['provisioning', 'failed', 'terminated'],
@@ -83,18 +84,27 @@ export class MissionDO {
 
   private async nextDirective(): Promise<Response> {
     if (!this.mission) return new Response('not initialized', { status: 404 });
-    // Stub action picker — replaced by tick engine in Task 27.
-    const op_id = `op_${crypto.randomUUID().slice(0, 8)}`;
+    const q = buildInitialQueue(this.mission);
+    const { directive, probeId } = pickAction(this.mission, q);
+    if (probeId) {
+      await this.state.storage.put(`pending:${directive.id}`, { probeId });
+    }
     this.mission.tick += 1;
     await this.state.storage.put('mission', this.mission);
-    return Response.json({ id: op_id, op: 'yield', sleep_s: 5 });
+    return Response.json(directive);
   }
 
   private async ingest(req: Request): Promise<Response> {
     if (!this.mission) return new Response('not initialized', { status: 404 });
-    const env = await req.json();
-    // Phase F (Task 27) replaces this with rule-engine update.
+    const env = await req.json() as { op_id: string; ok: boolean; data?: { probeId?: string; observations?: unknown[] } };
     await this.state.storage.put(`tick:${this.mission.tick}`, env);
+    if (env.ok && env.data?.probeId && Array.isArray(env.data.observations)) {
+      this.mission.beliefs = ingestObservations(this.mission.beliefs, {
+        probeId: env.data.probeId,
+        observations: env.data.observations as { pattern: string; extracted: { value: string }; hypothesis: string }[],
+      }, this.mission.tick);
+    }
+    await this.state.storage.put('mission', this.mission);
     return new Response('ok');
   }
 }
