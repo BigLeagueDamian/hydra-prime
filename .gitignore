@@ -1,0 +1,10 @@
+.env
+.env.*
+!.env.example
+*.pem
+node_modules/
+.wrangler/
+dist/
+*.tsbuildinfo
+.DS_Store
+Thumbs.db
