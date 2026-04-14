@@ -71,3 +71,32 @@ export function softmaxPosteriors(h: Hypothesis): Hypothesis {
     candidates: h.candidates.map((c, i) => ({ ...c, posterior: exps[i]! / sum })),
   };
 }
+
+export interface Observation {
+  source_class: string;
+  note: string;
+  newCandidates: string[];
+  llrByCandidate: Record<string, number>;
+}
+
+export function applyObservation(h: Hypothesis, obs: Observation, tick: number): Hypothesis {
+  const startingLogit = Math.log(0.05 / 0.95);
+  let next = h;
+  for (const v of obs.newCandidates) {
+    next = addCandidate(next, v, startingLogit);
+  }
+  next = {
+    ...next,
+    candidates: next.candidates.map(c => {
+      const llr = obs.llrByCandidate[c.value] ?? 0;
+      if (llr === 0) return c;
+      return {
+        ...c,
+        logit: c.logit + llr,
+        last_update_tick: tick,
+        evidence: [...c.evidence, { note: obs.note, source_class: obs.source_class, llr, tick }],
+      };
+    }),
+  };
+  return softmaxPosteriors(next);
+}
