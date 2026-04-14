@@ -16,7 +16,14 @@ export interface CodexDecision {
   reason?: string;
 }
 
-const FORBIDDEN_PATHS = [/^\/etc\/shadow$/, /^\/root\//, /^\/var\/log\/auth\.log$/];
+const FORBIDDEN_PATHS = [
+  /^\/etc\/shadow$/,
+  /^\/etc\/sudoers$/,
+  /^\/etc\/sudoers\.d\//,
+  /^\/root\//,
+  /^\/var\/log\/auth\.log$/,
+  /^\/var\/spool\/cron\//,
+];
 
 export function evaluate(action: ProposedAction, m: MissionState): CodexDecision {
   // §2.1 — 24h hard cap

@@ -46,6 +46,11 @@ describe('codex pre-action gate', () => {
     expect(d.allowed).toBe(false);
     expect(d.rule).toBe('§2.2');
   });
+
+  it('allows exec without isMutation flag (normal probe execution)', () => {
+    const d = evaluate({ type: 'exec', cmd: 'cat ~/.ssh/config' }, baseMission);
+    expect(d.allowed).toBe(true);
+  });
 });
 
 describe('prompt prefix', () => {
