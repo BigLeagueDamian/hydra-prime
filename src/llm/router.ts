@@ -30,6 +30,10 @@ export interface RouterDeps {
 
 export class SanityUnavailable extends Error { name = 'SanityUnavailable'; }
 
+// CALLER RESPONSIBILITY: when response.isPaidTier is true, caller MUST flip
+// mission.honor_tier from 'gold' to 'silver' and decrement
+// budget_paid_usd_remaining by response.costUsd. Router is pure dispatch and
+// does not mutate MissionState.
 export async function routerCall(
   req: BrainCall, m: MissionState, deps: RouterDeps,
 ): Promise<BrainResponse> {
@@ -37,6 +41,9 @@ export async function routerCall(
   return routineChain(req, m, deps);
 }
 
+// Routine chain swallows all per-provider errors (auth, network, rate limit) and
+// cascades to the next provider. Final fallback throws ProviderUnavailable when
+// all are exhausted. Best-effort; no fail-closed semantic for routine calls.
 async function routineChain(req: BrainCall, _m: MissionState, deps: RouterDeps): Promise<BrainResponse> {
   // Workers AI: classify/extract/route only.
   try {
