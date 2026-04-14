@@ -1,9 +1,15 @@
 import type { MissionState, Directive } from '../types';
-import { applyObservation, newHypothesis, recomputeStatus, type Hypothesis } from './beliefs';
+import { applyObservation, newHypothesis, recomputeStatus, type Hypothesis, type HypothesisType } from './beliefs';
 import { newQueue, enqueue, popHighest, type PriorityQueue } from './queue';
 import { computeValue } from './value';
 import { ALL_PROBES } from '../catalog/registry';
 import { evaluate, type ProposedAction } from '../codex';
+
+function hypothesisTypeFromId(id: string): HypothesisType {
+  const stripped = id.startsWith('h:') ? id.slice(2) : id;
+  const known: HypothesisType[] = ['target-address', 'target-credentials', 'network-path', 'auth-method', 'proxy-jump-chain'];
+  return (known as string[]).includes(stripped) ? (stripped as HypothesisType) : 'target-address';
+}
 
 export function buildInitialQueue(m: MissionState): PriorityQueue {
   let q = newQueue();
@@ -31,7 +37,11 @@ export function pickAction(m: MissionState, q: PriorityQueue): { directive: Dire
     return { directive: { id: `op_${crypto.randomUUID().slice(0, 8)}`, op: 'yield', sleep_s: 5 }, queue: q, probeId: null };
   }
   const probe = ALL_PROBES.find(p => p.id === top.probeId)!;
-  const body = probe.bodyByPlatform[m.platform] ?? '';
+  const body = probe.bodyByPlatform[m.platform];
+  if (!body) {
+    // Probe declared platform but missing body — skip and recurse.
+    return pickAction(m, rest);
+  }
   const action: ProposedAction = { type: 'exec', cmd: body };
   const decision = evaluate(action, m);
   if (!decision.allowed) {
@@ -60,7 +70,7 @@ export function ingestObservations(beliefs: Record<string, Hypothesis>, payload:
     const llrEntry = probe.llrContributions.find(c => c.pattern === obs.pattern && c.targetHypothesis === obs.hypothesis);
     const llr = llrEntry?.llr ?? 0;
     if (llr === 0) continue;
-    const h = out[obs.hypothesis] ?? newHypothesis(obs.hypothesis, 'target-address');
+    const h = out[obs.hypothesis] ?? newHypothesis(obs.hypothesis, hypothesisTypeFromId(obs.hypothesis));
     out[obs.hypothesis] = recomputeStatus(applyObservation(h, {
       source_class: probe.id, note: obs.pattern,
       newCandidates: [obs.extracted.value],

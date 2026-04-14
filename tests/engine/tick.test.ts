@@ -51,4 +51,17 @@ describe('tick cycle integration', () => {
     expect(top).toBeDefined();
     expect(top!.posterior).toBeGreaterThan(0.05);
   });
+
+  it('ingestObservations creates correct HypothesisType for h:target-credentials', async () => {
+    const { ingestObservations } = await import('../../src/engine/tick');
+    await seedCatalog(env.HYDRA_KV);
+    const beliefs = ingestObservations({}, {
+      probeId: 'private-key-enum',
+      observations: [
+        { pattern: 'key_filename_matches_target', extracted: { value: '~/.ssh/k' }, hypothesis: 'h:target-credentials' },
+      ],
+    }, 1);
+    expect(beliefs['h:target-credentials']).toBeDefined();
+    expect(beliefs['h:target-credentials']!.type).toBe('target-credentials');
+  });
 });
