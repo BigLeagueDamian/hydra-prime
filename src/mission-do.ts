@@ -2,6 +2,7 @@ import type { Env } from './index';
 import type { MissionState, Phase } from './types';
 import type { Hypothesis } from './engine/beliefs';
 import { buildInitialQueue, pickAction, ingestObservations } from './engine/tick';
+import { advancePhase } from './engine/phases';
 
 const LEGAL: Record<Phase, Phase[]> = {
   registered: ['provisioning', 'failed', 'terminated'],
@@ -103,6 +104,11 @@ export class MissionDO {
         probeId: env.data.probeId,
         observations: env.data.observations as { pattern: string; extracted: { value: string }; hypothesis: string }[],
       }, this.mission.tick);
+    }
+    // Phase advance based on updated beliefs.
+    const nextPhase = advancePhase(this.mission);
+    if (nextPhase !== this.mission.phase) {
+      this.mission.phase = nextPhase;
     }
     await this.state.storage.put('mission', this.mission);
     return new Response('ok');
