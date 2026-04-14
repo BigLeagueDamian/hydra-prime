@@ -16,6 +16,18 @@ describe('wire types', () => {
     expect(isReportEnvelope(env)).toBe(true);
   });
 
+  it('rejects success report missing data field', () => {
+    expect(isReportEnvelope({ op_id: 'x', ok: true, wall_ms: 5 })).toBe(false);
+  });
+
+  it('rejects failure report missing err field', () => {
+    expect(isReportEnvelope({ op_id: 'x', ok: false, wall_ms: 5 })).toBe(false);
+  });
+
+  it('accepts valid failure report', () => {
+    expect(isReportEnvelope({ op_id: 'x', ok: false, err: 'timeout', wall_ms: 5 })).toBe(true);
+  });
+
   it('parseDirective throws on unknown op', () => {
     expect(() => parseDirective(JSON.stringify({ id: 'x', op: 'sing' }))).toThrow();
   });

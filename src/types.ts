@@ -39,7 +39,7 @@ export interface MissionState {
   wall_clock_started_ms: number;
   wall_clock_deadline_ms: number;
   tick: number;
-  // @ts-expect-error not-yet-created
+  // @ts-expect-error forward-ref to engine/beliefs (created in Task 11; remove this directive then)
   beliefs: Record<string, import('./engine/beliefs').Hypothesis>;
   jump_chain: string[];
   target_allowlist: string[];
@@ -55,7 +55,9 @@ export function isDirective(x: unknown): x is Directive {
 export function isReportEnvelope(x: unknown): x is ReportEnvelope {
   if (typeof x !== 'object' || x === null) return false;
   const o = x as Record<string, unknown>;
-  return typeof o.op_id === 'string' && typeof o.ok === 'boolean' && typeof o.wall_ms === 'number';
+  if (typeof o.op_id !== 'string' || typeof o.ok !== 'boolean' || typeof o.wall_ms !== 'number') return false;
+  if (o.ok === true) return typeof o.data === 'object' && o.data !== null;
+  return typeof o.err === 'string';
 }
 
 export function parseDirective(raw: string): Directive {
