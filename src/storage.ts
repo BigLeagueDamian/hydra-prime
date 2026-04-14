@@ -11,6 +11,7 @@ export async function getRateCounter(kv: KVNamespace, key: string): Promise<numb
   return v ? parseInt(v, 10) : 0;
 }
 
+// NOTE: read-then-write is not atomic in KV. v1 single-writer assumption; v2 should use DO if contention emerges.
 export async function incrRateCounter(kv: KVNamespace, key: string, by = 1): Promise<number> {
   const cur = await getRateCounter(kv, key);
   const next = cur + by;
