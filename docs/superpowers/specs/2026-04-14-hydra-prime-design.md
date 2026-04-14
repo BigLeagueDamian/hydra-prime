@@ -79,7 +79,7 @@ Linux, macOS, WSL. Git-Bash on Windows deferred to v2.
 ### Boot sequence
 
 1. `HYDRA_HOME = $HOME/.hydra/<mission_id>/` (scoped working directory; all writes confined here).
-2. `FINGERPRINT = sha256(hostname + primary_mac_address)`.
+2. `FINGERPRINT = sha256(hostname + primary_mac + machine_uuid)` where `machine_uuid` follows this fallback chain: Linux → `/etc/machine-id`; macOS → `ioreg -rd1 -c IOPlatformExpertDevice | awk '/IOPlatformUUID/{print $3}'`; WSL → `/etc/machine-id`; final fallback → first non-removable disk serial via `lsblk -ndo SERIAL` / `diskutil info /`. Closes the cloud-snapshot collision class (identical hostname+MAC after VM clone).
 3. Unmask embedded supervisor auth token via `XOR(masked_bytes, HMAC-SHA256(fingerprint, salt))`. Token usable only on the host whose fingerprint matches.
 4. `SUPERVISOR_URL` — hardcoded constant in script.
 5. Call `register` → receive `mission_id` + session key, or exit quietly if refused.
@@ -118,8 +118,8 @@ These are redundant with supervisor-side codex enforcement but serve as a second
 |---|---|
 | **Worker** (`hydra-prime-supervisor`) | Stateless entry point. Endpoint handlers. Codex enforcement. LLM pool routing. |
 | **MissionDO** (Durable Object) | One instance per mission. Owns belief graph, priority queue, budget ledger, tick log. Global cap = 1 active mission in v1. |
-| **Workers AI** | Primary free brain path: Cloudflare-native inference (`@cf/meta/llama-3.1-8b-instruct`). Zero network hop from Worker. |
-| **Groq API** (external) | Secondary free path: `llama-3.3-70b-versatile` on Groq free tier, called from Worker via `GROQ_API_KEY`. |
+| **Workers AI** | Routine free brain path for `classify` / `extract` only (narrow structured tasks): Cloudflare-native inference (`@cf/meta/llama-3.1-8b-instruct`). Zero network hop from Worker. **Not eligible for `sanity_check` gate calls.** |
+| **Groq API** (external) | Primary path for `sanity_check` gate calls AND secondary routine path: `llama-3.3-70b-versatile` on Groq free tier, called from Worker via `GROQ_API_KEY`. 70B-class minimum is mandatory for adversarial codex/hop review. |
 | **OpenRouter** (external) | Tertiary path: free models first, paid fallback (silver tier). |
 | **KV** (`hydra-prime-kv`) | Rate counters, kill flags, probe catalog (module bodies as strings). |
 | **Secrets** (Wrangler) | `OPENROUTER_API_KEY`, `GROQ_API_KEY`, `SIGNING_KEY` (ed25519), `TOKEN_HMAC_SECRET`. Never exposed to the host. |
@@ -429,7 +429,15 @@ Warm packet includes:
 - Honor-tier state
 - Codex pin (hash)
 
-Excludes: raw probe outputs (remain in DO inline storage — no cold RAG in v1, so raw outputs are lost on origin cleanup unless pulled into packet explicitly), full brain transcripts, supervisor token.
+Excludes: full brain transcripts, supervisor token.
+
+**Pre-hop distillation checklist (enforced — hop blocks on failure):**
+1. All converged hypotheses include top-3 candidates with full evidence chain.
+2. Last 20 tick log entries included.
+3. For every still-open hypothesis, every raw probe output referenced by its evidence chain is either (a) promoted verbatim into the packet, or (b) the hypothesis is closed/demoted before hop.
+4. Packet total ≤ 2 MB after base64 encoding; if over, lowest-EIG open hypotheses are closed until under cap, or hop fails with `distillation-oversize`.
+
+This turns "raw outputs lost on origin cleanup" from silent data loss into an explicit gate: a hop cannot proceed while the target would need evidence the packet doesn't carry.
 
 Packet signed with supervisor's signing key.
 
@@ -503,7 +511,7 @@ Max 5 full hop attempts per mission. Each failure decrements posterior on the pa
 - **§3.4** Kill switch binding.
 
 ### §4 Action integrity
-- **§4.1** Mandatory single-model sanity check on `attempt_hop`, `signal_success`, critical belief updates. (Dual-model in v2.)
+- **§4.1** Mandatory single-model sanity check on `attempt_hop`, `signal_success`, critical belief updates. **70B-class minimum** — Workers AI 8B is disallowed for gate calls. Provider order: Groq `llama-3.3-70b-versatile` (free) → OpenRouter free 70B-class → OpenRouter paid (silver) → Anthropic paid. If `strict_gold=true` AND all free 70B-class paths are exhausted/rate-limited, hop fails closed with `sanity-unavailable` — no degradation to 8B review. Non-strict missions MAY proceed on 8B sanity with a logged codex warning and an automatic posterior penalty on the hop path. (Dual-model in v2.)
 - **§4.2** Codex-first synthesis.
 - **§4.3** Logged deliberation.
 
@@ -575,10 +583,11 @@ A **tick** = one `poll → execute → report → ingest` cycle. Logical counter
 ## 15. Open questions for implementation phase
 
 1. **HMAC salt baked into script vs. supplied at launch?** Baking is simpler; per-mission salt supplied at launch gives an additional revocation axis.
-2. **Mission DO storage ceiling.** How much inline note storage before pushing to R2 even in v1? (Proposed: 4 MB soft cap per mission, fail mission if exceeded — simpler than partial R2 integration.)
-3. **Platform fingerprint collision.** Two VMs with same hostname + MAC (cloud snapshots) will have identical fingerprints. Does this matter in v1? (Proposed: document as known limitation, require operator-unique hostnames on target allowlist.)
+2. **Mission DO storage ceiling.** **Resolved:** 4 MB inline hard cap per mission. Exceeding fails the mission. No partial R2 integration in v1. Pre-hop distillation checklist (§10 Phase 1) governs what crosses the hop boundary.
+3. **Platform fingerprint collision.** **Resolved:** fingerprint extended to `sha256(hostname + primary_mac + machine_uuid)` with OS-specific UUID fallback chain (§4 boot). Closes the cloud-snapshot collision class.
 4. **`accept-new` for StrictHostKeyChecking vs. pre-seeded known_hosts entry.** `accept-new` is simpler and safe on first hop; requires audit trail in tick log.
 5. **Default Bayesian thresholds (0.85 / 0.75 / 0.60 / 0.2 / 0.9).** Tuning via first real missions; spec sets initial values.
+6. **Sanity-check model tier.** **Resolved:** 70B-class minimum, Groq `llama-3.3-70b-versatile` primary; strict_gold fails closed if free 70B-class unavailable (§11 §4.1).
 
 ---
 
