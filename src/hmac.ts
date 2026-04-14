@@ -42,6 +42,7 @@ export async function verifyRequest(
 }
 
 export async function maskToken(token: Uint8Array, fingerprint: string, salt: string): Promise<Uint8Array> {
+  if (token.length > 32) throw new Error(`maskToken: token length ${token.length} > 32 (HMAC-SHA256 output limit)`);
   const key = await hmacKey(salt);
   const mask = await crypto.subtle.sign('HMAC', key, enc.encode(fingerprint));
   const m = new Uint8Array(mask).slice(0, token.length);

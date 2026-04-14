@@ -24,6 +24,13 @@ describe('HMAC', () => {
     const ok = await verifyRequest(key, 'GET', '/v1/poll', '', now - 120, sig, { now, windowS: 60 });
     expect(ok).toBe(false);
   });
+
+  it('rejects timestamp drift > 60s in the future', async () => {
+    const now = Math.floor(Date.now() / 1000);
+    const sig = await signRequest(key, 'GET', '/v1/poll', '', now + 120);
+    const ok = await verifyRequest(key, 'GET', '/v1/poll', '', now + 120, sig, { now, windowS: 60 });
+    expect(ok).toBe(false);
+  });
 });
 
 describe('Token masking', () => {
@@ -41,5 +48,10 @@ describe('Token masking', () => {
     const masked = await maskToken(token, 'sha256:right', 'salt');
     const recovered = await unmaskToken(masked, 'sha256:wrong', 'salt');
     expect(Array.from(recovered)).not.toEqual(Array.from(token));
+  });
+
+  it('throws when token exceeds 32 bytes', async () => {
+    const big = new Uint8Array(48);
+    await expect(maskToken(big, 'fp', 'salt')).rejects.toThrow(/> 32/);
   });
 });
