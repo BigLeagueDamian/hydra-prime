@@ -4,5 +4,6 @@ declare module 'cloudflare:test' {
   interface ProvidedEnv {
     HYDRA_KV: KVNamespace;
     MISSION_DO: DurableObjectNamespace;
+    ADMIN_KEY?: string;
   }
 }
