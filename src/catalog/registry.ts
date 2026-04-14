@@ -1,5 +1,14 @@
 import type { ProbeManifest } from './manifest';
+import { sshConfigScan } from './probes/ssh-config-scan';
+import { knownHostsEnum } from './probes/known-hosts-enum';
+import { privateKeyEnum } from './probes/private-key-enum';
+import { shellHistoryGrep } from './probes/shell-history-grep';
+import { hostsFile } from './probes/hosts-file';
 
-// Modules are appended in Tasks 22-23. Empty array makes the validation
-// harness pass on an empty set; it.each over an empty array is a no-op.
-export const ALL_PROBES: ProbeManifest[] = [];
+export const ALL_PROBES: ProbeManifest[] = [
+  sshConfigScan,
+  knownHostsEnum,
+  privateKeyEnum,
+  shellHistoryGrep,
+  hostsFile,
+];
