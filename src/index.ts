@@ -12,6 +12,7 @@ export interface Env {
   HYDRA_KV: KVNamespace;
   AI?: Ai;
   ADMIN_KEY?: string;
+  SUPERVISOR_HOST?: string;  // override for hop bundles' supervisor_url field
 }
 
 export default {

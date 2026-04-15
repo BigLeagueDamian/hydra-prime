@@ -11,6 +11,7 @@ import { distillWarmPacket } from './hop/distill';
 import { enforcePreHopChecklist } from './hop/checklist';
 import { composeBootstrapBundle } from './hop/bundle';
 import { composeSshHopExec } from './hop/ssh';
+import { TARGET_BOOTSTRAP_SH } from './hop/target-script';
 
 const LEGAL: Record<Phase, Phase[]> = {
   registered: ['provisioning', 'verifying', 'failed', 'terminated'],
@@ -31,10 +32,12 @@ const LEGAL: Record<Phase, Phase[]> = {
 
 export class MissionDO {
   private state: DurableObjectState;
+  private env: Env;
   private mission: MissionState | null = null;
 
-  constructor(state: DurableObjectState, _env: Env) {
+  constructor(state: DurableObjectState, env: Env) {
     this.state = state;
+    this.env = env;
     this.state.blockConcurrencyWhile(async () => {
       this.mission = (await this.state.storage.get<MissionState>('mission')) ?? null;
     });
@@ -52,6 +55,7 @@ export class MissionDO {
     if (route === 'rehydrate') return this.rehydrate(req);
     if (route === 'extend') return this.extend(req);
     if (route === 'log') return this.log();
+    if (route === 'set-fingerprint') return this.setFingerprint(req);
     return new Response('not found', { status: 404 });
   }
 
@@ -165,13 +169,58 @@ export class MissionDO {
     const check = enforcePreHopChecklist(packet);
     if (!check.ok) return null;  // hop blocked; mission stays in current phase
 
-    // Compose bootstrap bundle + SSH hop exec directive.
+    // Provision the target mission server-side: mint id, init DO with
+    // fingerprint='_pending_' (target's actual fingerprint is unknown until
+    // it sends the success proof; handleSuccess records it then), pre-load
+    // beliefs from the warm packet, mint session_key + store in KV.
+    const targetMissionId = `${this.mission.mission_id}-tgt-${crypto.randomUUID().slice(0, 8)}`;
+    const targetStub = this.env.MISSION_DO.get(this.env.MISSION_DO.idFromName(targetMissionId));
+    await targetStub.fetch('https://do/init', {
+      method: 'POST',
+      body: JSON.stringify({
+        mission_id: targetMissionId,
+        fingerprint: '_pending_',  // updated by handleSuccess on first arrival
+        platform: 'linux',
+        target_allowlist: this.mission.target_allowlist,
+        strict_gold: this.mission.strict_gold,
+        budget_paid_usd: this.mission.budget_paid_usd_remaining,
+        deadline_ms: this.mission.wall_clock_deadline_ms,
+        target_user: this.mission.target_user,
+        hop_attempt_threshold: this.mission.hop_attempt_threshold,
+      }),
+    });
+    // Push the warm packet into the target DO so its beliefs / jump_chain are
+    // pre-populated. This sets phase=verifying.
+    await targetStub.fetch('https://do/rehydrate', {
+      method: 'POST',
+      body: JSON.stringify({ packet }),
+    });
+    // Mint a session_key the target script will use to sign /v1/success.
+    const sessionKeyBytes = new Uint8Array(32);
+    crypto.getRandomValues(sessionKeyBytes);
+    const targetSessionKey = [...sessionKeyBytes].map(b => b.toString(16).padStart(2, '0')).join('');
+    await this.env.HYDRA_KV.put(`session:${targetMissionId}`, targetSessionKey, { expirationTtl: 86_400 });
+    // Also index the target mission so /admin/missions sees it.
+    await this.env.HYDRA_KV.put(`mission-index:${targetMissionId}`, JSON.stringify({
+      started_ms: Date.now(),
+      fingerprint_expected: '_pending_',
+      target_allowlist: this.mission.target_allowlist,
+      strict_gold: this.mission.strict_gold,
+      hop_origin: this.mission.mission_id,
+    }), { expirationTtl: 86_400 * 30 });
+
+    // Compose bundle: the actual proof-of-arrival script + target's
+    // mission_id + supervisor URL + session_key + warm packet (target reads
+    // jump_chain_origin from warm_packet).
+    const supervisorUrl = `https://${this.env.SUPERVISOR_HOST ?? 'hydra-prime-supervisor.ajay-34b.workers.dev'}`;
     const bundleB64 = composeBootstrapBundle({
-      hydra_sh: '#!/usr/bin/env bash\n# bootstrap placeholder (target-side script ships separately in v1)',
-      masked_token_hex: 'pending-v1', salt: 'pending-v1',
-      mission_id: `${this.mission.mission_id}-target`,
+      hydra_sh: TARGET_BOOTSTRAP_SH,
+      masked_token_hex: targetSessionKey,  // unused by target script (kept for bundle schema)
+      salt: '',
+      mission_id: targetMissionId,
       warm_packet: packet,
-      supervisor_url: 'https://hydra-prime-supervisor.workers.dev',
+      supervisor_url: supervisorUrl,
+      session_key: targetSessionKey,  // target script uses this directly
     });
 
     let hopDirective;
@@ -277,6 +326,14 @@ export class MissionDO {
     this.mission.budget_paid_usd_remaining += extra_budget_usd;
     await this.state.storage.put('mission', this.mission);
     return Response.json(this.mission);
+  }
+
+  private async setFingerprint(req: Request): Promise<Response> {
+    if (!this.mission) return new Response('not initialized', { status: 404 });
+    const { fingerprint } = await req.json() as { fingerprint: string };
+    this.mission.origin_fingerprint = fingerprint;
+    await this.state.storage.put('mission', this.mission);
+    return Response.json({ ok: true, origin_fingerprint: fingerprint });
   }
 
   private async log(): Promise<Response> {

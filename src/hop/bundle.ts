@@ -5,6 +5,11 @@ export interface BundleContents {
   mission_id: string;
   warm_packet: unknown;
   supervisor_url: string;
+  // Plaintext session key the target script uses to sign /v1/success. v1 hop
+  // doesn't use the masked_token+salt fingerprint-binding flow because target
+  // fingerprint is unknown at hop-emit time. Bundle confidentiality is enforced
+  // by the SSH transport (key auth required to deposit it).
+  session_key?: string;
 }
 
 export function composeBootstrapBundle(c: BundleContents): string {
