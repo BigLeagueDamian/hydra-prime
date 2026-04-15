@@ -91,3 +91,9 @@ export async function handleAdminList(req: Request, env: Env): Promise<Response>
   missions.sort((a, b) => b.started_ms - a.started_ms);
   return Response.json({ missions });
 }
+
+export async function handleAdminLog(req: Request, env: Env, missionId: string): Promise<Response> {
+  const auth = checkAdminAuth(req, env); if (auth) return auth;
+  const stub = env.MISSION_DO.get(env.MISSION_DO.idFromName(missionId));
+  return stub.fetch('https://do/log');
+}

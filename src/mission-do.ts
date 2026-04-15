@@ -39,6 +39,7 @@ export class MissionDO {
     if (route === 'ingest') return this.ingest(req);
     if (route === 'rehydrate') return this.rehydrate(req);
     if (route === 'extend') return this.extend(req);
+    if (route === 'log') return this.log();
     return new Response('not found', { status: 404 });
   }
 
@@ -146,5 +147,15 @@ export class MissionDO {
     this.mission.budget_paid_usd_remaining += extra_budget_usd;
     await this.state.storage.put('mission', this.mission);
     return Response.json(this.mission);
+  }
+
+  private async log(): Promise<Response> {
+    const all = await this.state.storage.list({ prefix: 'tick:' });
+    const ticks: { tick: number; envelope: unknown }[] = [];
+    for (const [k, v] of all.entries()) {
+      ticks.push({ tick: parseInt(k.slice('tick:'.length), 10), envelope: v });
+    }
+    ticks.sort((a, b) => a.tick - b.tick);
+    return Response.json({ ticks });
   }
 }

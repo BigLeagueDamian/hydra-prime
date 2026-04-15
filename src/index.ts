@@ -2,7 +2,7 @@ import { handleRegister } from './endpoints/register';
 import { handlePoll } from './endpoints/poll';
 import { handleReport } from './endpoints/report';
 import { handleSuccess } from './endpoints/success';
-import { handleAdminStart, handleAdminKill, handleAdminPause, handleAdminExtend, handleAdminList } from './endpoints/admin';
+import { handleAdminStart, handleAdminKill, handleAdminPause, handleAdminExtend, handleAdminList, handleAdminLog } from './endpoints/admin';
 export { MissionDO } from './mission-do';
 
 export interface Env {
@@ -28,6 +28,8 @@ export default {
     if (pauseMatch && req.method === 'POST') return handleAdminPause(req, env, pauseMatch[1]!);
     const extendMatch = url.pathname.match(/^\/v1\/admin\/mission\/([^/]+)\/extend$/);
     if (extendMatch && req.method === 'POST') return handleAdminExtend(req, env, extendMatch[1]!);
+    const logMatch = url.pathname.match(/^\/v1\/admin\/mission\/([^/]+)\/log$/);
+    if (logMatch && req.method === 'GET') return handleAdminLog(req, env, logMatch[1]!);
     return new Response('not found', { status: 404 });
   },
 };
