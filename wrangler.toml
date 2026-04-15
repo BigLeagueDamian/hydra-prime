@@ -1,0 +1,16 @@
+name = "hydra-prime-supervisor"
+main = "src/index.ts"
+compatibility_date = "2024-09-23"
+compatibility_flags = ["nodejs_compat"]
+
+[[durable_objects.bindings]]
+name = "MISSION_DO"
+class_name = "MissionDO"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["MissionDO"]
+
+[[kv_namespaces]]
+binding = "HYDRA_KV"
+id = "f91e7f18f9274df789b7c7732301043c"
