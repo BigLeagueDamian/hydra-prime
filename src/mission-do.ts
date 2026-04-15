@@ -34,6 +34,7 @@ export class MissionDO {
     if (route === 'init') return this.init(req);
     if (route === 'state') return this.getState();
     if (route === 'transition') return this.transition(req);
+    if (route === 'force-transition') return this.forceTransition(req);
     if (route === 'next-directive') return this.nextDirective();
     if (route === 'ingest') return this.ingest(req);
     if (route === 'rehydrate') return this.rehydrate(req);
@@ -125,5 +126,15 @@ export class MissionDO {
     }
     await this.state.storage.put('mission', this.mission);
     return new Response('ok');
+  }
+
+  private async forceTransition(req: Request): Promise<Response> {
+    if (!this.mission) return new Response('not initialized', { status: 404 });
+    const { to } = await req.json() as { to: Phase };
+    // Force transition bypasses LEGAL checks. Used only by /success endpoint
+    // after proof of successful target verification.
+    this.mission.phase = to;
+    await this.state.storage.put('mission', this.mission);
+    return Response.json(this.mission);
   }
 }
