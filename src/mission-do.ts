@@ -5,7 +5,7 @@ import { buildInitialQueue, pickAction, ingestObservations } from './engine/tick
 import { advancePhase } from './engine/phases';
 
 const LEGAL: Record<Phase, Phase[]> = {
-  registered: ['provisioning', 'failed', 'terminated'],
+  registered: ['provisioning', 'verifying', 'failed', 'terminated'],
   provisioning: ['scanning', 'failed', 'terminated'],
   scanning: ['hypothesizing', 'failed', 'terminated'],
   hypothesizing: ['planning', 'scanning', 'failed', 'terminated'],
@@ -36,17 +36,18 @@ export class MissionDO {
     if (route === 'transition') return this.transition(req);
     if (route === 'next-directive') return this.nextDirective();
     if (route === 'ingest') return this.ingest(req);
+    if (route === 'rehydrate') return this.rehydrate(req);
     return new Response('not found', { status: 404 });
   }
 
   private async init(req: Request): Promise<Response> {
     if (this.mission) return new Response('already initialized', { status: 409 });
     const body = await req.json() as {
-      fingerprint: string; platform: 'linux' | 'macos' | 'wsl';
+      mission_id?: string; fingerprint: string; platform: 'linux' | 'macos' | 'wsl';
       target_allowlist: string[]; strict_gold: boolean;
       budget_paid_usd: number; deadline_ms: number;
     };
-    const id = this.state.id.toString();
+    const id = body.mission_id ?? this.state.id.toString();
     this.mission = {
       mission_id: id,
       origin_fingerprint: body.fingerprint,
@@ -93,6 +94,18 @@ export class MissionDO {
     this.mission.tick += 1;
     await this.state.storage.put('mission', this.mission);
     return Response.json(directive);
+  }
+
+  private async rehydrate(req: Request): Promise<Response> {
+    if (!this.mission) return new Response('not initialized', { status: 404 });
+    const { packet } = await req.json() as { packet: { jump_chain_origin: string; belief_graph: Record<string, never>; budget_paid_usd_remaining: number; honor_tier: 'gold' | 'silver' | 'failed' } };
+    this.mission.beliefs = packet.belief_graph;
+    this.mission.budget_paid_usd_remaining = packet.budget_paid_usd_remaining;
+    this.mission.honor_tier = packet.honor_tier;
+    this.mission.jump_chain = [packet.jump_chain_origin, this.mission.mission_id];
+    this.mission.phase = 'verifying';
+    await this.state.storage.put('mission', this.mission);
+    return new Response('ok');
   }
 
   private async ingest(req: Request): Promise<Response> {

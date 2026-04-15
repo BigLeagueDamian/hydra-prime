@@ -28,6 +28,7 @@ export default {
       await stub.fetch('https://do/init', {
         method: 'POST',
         body: JSON.stringify({
+          mission_id,
           fingerprint: body.fingerprint_expected,
           platform: 'linux',
           target_allowlist: body.target_allowlist,
