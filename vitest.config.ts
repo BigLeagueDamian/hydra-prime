@@ -2,6 +2,11 @@ import { defineWorkersConfig } from '@cloudflare/vitest-pool-workers/config';
 
 export default defineWorkersConfig({
   test: {
+    // Script-shell tests (build, container) live under their own config
+    // (vitest.script.config.ts) using the forks pool. Exclude them here so they
+    // don't get picked up by the Workers pool, which would crash with a
+    // workerd Fallback service network error.
+    exclude: ['**/node_modules/**', 'tests/script-*.test.ts'],
     poolOptions: {
       workers: {
         wrangler: { configPath: './wrangler.toml' },
