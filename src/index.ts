@@ -2,7 +2,7 @@ import { handleRegister } from './endpoints/register';
 import { handlePoll } from './endpoints/poll';
 import { handleReport } from './endpoints/report';
 import { handleSuccess } from './endpoints/success';
-import { handleAdminStart, handleAdminKill, handleAdminPause, handleAdminExtend, handleAdminList, handleAdminLog } from './endpoints/admin';
+import { handleAdminStart, handleAdminKill, handleAdminPause, handleAdminExtend, handleAdminList, handleAdminLog, handleAdminScoreboard } from './endpoints/admin';
 export { MissionDO } from './mission-do';
 
 export interface Env {
@@ -22,6 +22,7 @@ export default {
     if (url.pathname === '/v1/success' && req.method === 'POST') return handleSuccess(req, env);
     if (url.pathname === '/v1/admin/mission/start' && req.method === 'POST') return handleAdminStart(req, env);
     if (url.pathname === '/v1/admin/missions' && req.method === 'GET') return handleAdminList(req, env);
+    if (url.pathname === '/v1/admin/scoreboard' && req.method === 'GET') return handleAdminScoreboard(req, env);
     const killMatch = url.pathname.match(/^\/v1\/admin\/mission\/([^/]+)\/kill$/);
     if (killMatch && req.method === 'POST') return handleAdminKill(req, env, killMatch[1]!);
     const pauseMatch = url.pathname.match(/^\/v1\/admin\/mission\/([^/]+)\/pause$/);

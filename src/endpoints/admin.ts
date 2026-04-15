@@ -97,3 +97,26 @@ export async function handleAdminLog(req: Request, env: Env, missionId: string):
   const stub = env.MISSION_DO.get(env.MISSION_DO.idFromName(missionId));
   return stub.fetch('https://do/log');
 }
+
+function escapeHtml(s: string): string {
+  return s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
+}
+
+export async function handleAdminScoreboard(req: Request, env: Env): Promise<Response> {
+  const auth = checkAdminAuth(req, env); if (auth) return auth;
+  const listRes = await handleAdminList(req, env);
+  const { missions } = await listRes.json() as { missions: { mission_id: string; phase: string; honor_tier: string; jump_chain: string[] }[] };
+  const rows = missions.map(m => `
+    <tr>
+      <td>${escapeHtml(m.mission_id)}</td>
+      <td>${escapeHtml(m.phase)}</td>
+      <td>${m.honor_tier === 'gold' ? '🟡' : m.honor_tier === 'silver' ? '⚪' : '🔴'} ${escapeHtml(m.honor_tier)}</td>
+      <td>${m.jump_chain.map(escapeHtml).join(' → ')}</td>
+    </tr>`).join('');
+  const html = `<!doctype html><meta charset="utf-8"><title>hydra-prime scoreboard</title>
+    <style>body{font:14px monospace;padding:2em;background:#0a0a0a;color:#eee}table{border-collapse:collapse;width:100%}td,th{border:1px solid #333;padding:6px 12px}th{background:#1a1a1a;text-align:left}</style>
+    <h1>hydra-prime scoreboard</h1>
+    <table><thead><tr><th>mission_id</th><th>phase</th><th>honor</th><th>jump_chain</th></tr></thead>
+    <tbody>${rows}</tbody></table>`;
+  return new Response(html, { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
+}
