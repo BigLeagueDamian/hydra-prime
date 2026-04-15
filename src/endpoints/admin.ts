@@ -16,7 +16,12 @@ export async function handleAdminStart(req: Request, env: Env): Promise<Response
     fingerprint_expected: string; target_allowlist: string[];
     strict_gold: boolean; budget_paid_usd: number; deadline_seconds: number;
     platform?: 'linux' | 'macos' | 'wsl';
+    target_user?: string;
+    hop_attempt_threshold?: number;
   };
+  if (body.target_user && !/^[A-Za-z_][A-Za-z0-9_-]*$/.test(body.target_user)) {
+    return new Response(`unsafe target_user: ${body.target_user}`, { status: 400 });
+  }
   if (!Array.isArray(body.target_allowlist) || body.target_allowlist.length === 0) {
     return new Response('target_allowlist required', { status: 400 });
   }
@@ -42,6 +47,8 @@ export async function handleAdminStart(req: Request, env: Env): Promise<Response
       strict_gold: body.strict_gold,
       budget_paid_usd: body.budget_paid_usd,
       deadline_ms: Date.now() + body.deadline_seconds * 1000,
+      target_user: body.target_user,
+      hop_attempt_threshold: body.hop_attempt_threshold,
     }),
   });
   await env.HYDRA_KV.put(`mission-index:${mission_id}`, JSON.stringify({
