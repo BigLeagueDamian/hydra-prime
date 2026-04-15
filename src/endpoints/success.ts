@@ -21,7 +21,15 @@ export async function handleSuccess(req: Request, env: Env): Promise<Response> {
   const state = await (await stub.fetch('https://do/state')).json() as {
     origin_fingerprint: string; jump_chain: string[]; mission_id: string;
   };
-  if (state.origin_fingerprint !== body.target_fingerprint) {
+  // For hop-target missions, supervisor pre-initialized origin_fingerprint
+  // as '_pending_' because the target's actual fingerprint can't be predicted
+  // pre-hop. Accept the first /v1/success report and record body.target_fingerprint
+  // as the canonical fingerprint at that point. Subsequent calls must match.
+  if (state.origin_fingerprint === '_pending_') {
+    await stub.fetch('https://do/set-fingerprint', {
+      method: 'POST', body: JSON.stringify({ fingerprint: body.target_fingerprint }),
+    });
+  } else if (state.origin_fingerprint !== body.target_fingerprint) {
     return new Response('fingerprint mismatch on success', { status: 403 });
   }
 

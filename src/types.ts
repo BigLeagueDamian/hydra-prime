@@ -48,6 +48,18 @@ export interface MissionState {
   // compatibility with pre-brain-wiring missions in storage; treat undefined
   // as [] at every use site.
   executed_probes?: string[];
+  // SSH user for the hop attempt. Default 'root'. Operator can override at
+  // admin/mission/start. v2 will infer this from ssh_config 'User' lines.
+  target_user?: string;
+  // Confidence floor for auto-trigger of attempt_hop. Default 0.3 (v1 dry-run
+  // mode — permissive because credential posteriors realistically split when
+  // multiple keys exist). Spec §7 recommends 0.85/0.75/0.6 by mode; tighten as
+  // the feasibility model improves.
+  hop_attempt_threshold?: number;
+  // True after the supervisor has emitted exactly one attempt_hop directive
+  // for this mission. Prevents poll-loop hop spam. v2 will allow N retries
+  // with credential-candidate cycling.
+  hop_attempted?: boolean;
 }
 
 export function isDirective(x: unknown): x is Directive {
