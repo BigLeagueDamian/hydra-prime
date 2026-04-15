@@ -1,4 +1,5 @@
 import type { Env } from '../index';
+import { putKillFlag } from '../storage';
 
 const SAFE_HOST = /^[A-Za-z0-9._-]+$/;
 
@@ -51,4 +52,24 @@ export async function handleAdminStart(req: Request, env: Env): Promise<Response
   }), { expirationTtl: 86_400 * 30 });
 
   return Response.json({ mission_id, allowlist: body.target_allowlist });
+}
+
+export async function handleAdminKill(req: Request, env: Env, missionId: string): Promise<Response> {
+  const auth = checkAdminAuth(req, env); if (auth) return auth;
+  await putKillFlag(env.HYDRA_KV, missionId);
+  return Response.json({ ok: true, killed: missionId });
+}
+
+export async function handleAdminPause(req: Request, env: Env, missionId: string): Promise<Response> {
+  const auth = checkAdminAuth(req, env); if (auth) return auth;
+  await env.HYDRA_KV.put(`pause:${missionId}`, '1', { expirationTtl: 86_400 });
+  return Response.json({ ok: true, paused: missionId });
+}
+
+export async function handleAdminExtend(req: Request, env: Env, missionId: string): Promise<Response> {
+  const auth = checkAdminAuth(req, env); if (auth) return auth;
+  const { extra_seconds, extra_budget_usd } = await req.json() as { extra_seconds: number; extra_budget_usd: number };
+  const stub = env.MISSION_DO.get(env.MISSION_DO.idFromName(missionId));
+  await stub.fetch('https://do/extend', { method: 'POST', body: JSON.stringify({ extra_seconds, extra_budget_usd }) });
+  return Response.json({ ok: true, extended: missionId });
 }

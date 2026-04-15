@@ -38,6 +38,7 @@ export class MissionDO {
     if (route === 'next-directive') return this.nextDirective();
     if (route === 'ingest') return this.ingest(req);
     if (route === 'rehydrate') return this.rehydrate(req);
+    if (route === 'extend') return this.extend(req);
     return new Response('not found', { status: 404 });
   }
 
@@ -134,6 +135,15 @@ export class MissionDO {
     // Force transition bypasses LEGAL checks. Used only by /success endpoint
     // after proof of successful target verification.
     this.mission.phase = to;
+    await this.state.storage.put('mission', this.mission);
+    return Response.json(this.mission);
+  }
+
+  private async extend(req: Request): Promise<Response> {
+    if (!this.mission) return new Response('not initialized', { status: 404 });
+    const { extra_seconds, extra_budget_usd } = await req.json() as { extra_seconds: number; extra_budget_usd: number };
+    this.mission.wall_clock_deadline_ms += extra_seconds * 1000;
+    this.mission.budget_paid_usd_remaining += extra_budget_usd;
     await this.state.storage.put('mission', this.mission);
     return Response.json(this.mission);
   }
