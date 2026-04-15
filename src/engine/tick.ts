@@ -13,8 +13,10 @@ function hypothesisTypeFromId(id: string): HypothesisType {
 
 export function buildInitialQueue(m: MissionState): PriorityQueue {
   let q = newQueue();
+  const executed = new Set(m.executed_probes ?? []);
   for (const p of ALL_PROBES) {
     if (!p.platforms.includes(m.platform)) continue;
+    if (executed.has(p.id)) continue;  // dedupe: don't re-pick already-run probes
     const remainingS = Math.max(1, Math.floor((m.wall_clock_deadline_ms - Date.now()) / 1000));
     const value = computeValue({
       eig: p.eigPrior, eta_s: p.wallClockEstimateS, tokenCost: p.tokenCostEstimate,

@@ -42,6 +42,12 @@ export interface MissionState {
   beliefs: Record<string, import('./engine/beliefs').Hypothesis>;
   jump_chain: string[];
   target_allowlist: string[];
+  // Probe IDs that have already been executed at least once. Used by
+  // buildInitialQueue to prevent the same high-EIG probe from being picked
+  // every tick. Persists across ticks within a mission. Optional for backward
+  // compatibility with pre-brain-wiring missions in storage; treat undefined
+  // as [] at every use site.
+  executed_probes?: string[];
 }
 
 export function isDirective(x: unknown): x is Directive {

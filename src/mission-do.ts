@@ -3,6 +3,8 @@ import type { MissionState, Phase } from './types';
 import type { Hypothesis } from './engine/beliefs';
 import { buildInitialQueue, pickAction, ingestObservations } from './engine/tick';
 import { advancePhase } from './engine/phases';
+import { extractObservations } from './engine/extract';
+import { ALL_PROBES } from './catalog/registry';
 
 const LEGAL: Record<Phase, Phase[]> = {
   registered: ['provisioning', 'verifying', 'failed', 'terminated'],
@@ -65,6 +67,7 @@ export class MissionDO {
       beliefs: {} as Record<string, Hypothesis>,
       jump_chain: ['origin'],
       target_allowlist: body.target_allowlist,
+      executed_probes: [],
     };
     await this.state.storage.put('mission', this.mission);
     return Response.json(this.mission);
@@ -89,10 +92,21 @@ export class MissionDO {
 
   private async nextDirective(): Promise<Response> {
     if (!this.mission) return new Response('not initialized', { status: 404 });
+
+    // Auto-walk entry phases on each poll until we reach scanning. Beyond
+    // scanning, advancePhase() drives transitions from belief updates.
+    if (this.mission.phase === 'registered') this.mission.phase = 'provisioning';
+    else if (this.mission.phase === 'provisioning') this.mission.phase = 'scanning';
+
     const q = buildInitialQueue(this.mission);
     const { directive, probeId } = pickAction(this.mission, q);
     if (probeId) {
       await this.state.storage.put(`pending:${directive.id}`, { probeId });
+      // Track executed probes so buildInitialQueue doesn't re-pick them next tick.
+      if (!this.mission.executed_probes) this.mission.executed_probes = [];
+      if (!this.mission.executed_probes.includes(probeId)) {
+        this.mission.executed_probes.push(probeId);
+      }
     }
     this.mission.tick += 1;
     await this.state.storage.put('mission', this.mission);
@@ -113,14 +127,49 @@ export class MissionDO {
 
   private async ingest(req: Request): Promise<Response> {
     if (!this.mission) return new Response('not initialized', { status: 404 });
-    const env = await req.json() as { op_id: string; ok: boolean; data?: { probeId?: string; observations?: unknown[] } };
+    const env = await req.json() as {
+      op_id: string;
+      ok: boolean;
+      data?: {
+        probeId?: string;
+        observations?: unknown[];
+        stdout?: string; stderr?: string; exit_code?: number;
+      };
+    };
     await this.state.storage.put(`tick:${this.mission.tick}`, env);
+
     if (env.ok && env.data?.probeId && Array.isArray(env.data.observations)) {
+      // Path A: structured payload (engine tests, internal callers).
       this.mission.beliefs = ingestObservations(this.mission.beliefs, {
         probeId: env.data.probeId,
         observations: env.data.observations as { pattern: string; extracted: { value: string }; hypothesis: string }[],
       }, this.mission.tick);
+    } else if (env.ok && env.data?.stdout) {
+      // Path B: raw probe output from the script. Look up which probe was
+      // dispatched for this op_id, run the manifest's regex extractors over
+      // the stdout, then feed the structured observations into the engine.
+      const pending = await this.state.storage.get<{ probeId: string }>(`pending:${env.op_id}`);
+      if (pending?.probeId) {
+        const manifest = ALL_PROBES.find(p => p.id === pending.probeId);
+        if (manifest) {
+          const observations = extractObservations(
+            manifest,
+            { stdout: env.data.stdout, stderr: env.data.stderr, exit_code: env.data.exit_code },
+            this.mission.target_allowlist,
+          );
+          if (observations.length > 0) {
+            this.mission.beliefs = ingestObservations(
+              this.mission.beliefs,
+              { probeId: pending.probeId, observations },
+              this.mission.tick,
+            );
+          }
+        }
+        // Cleanup pending marker regardless of extraction outcome (prevents KV growth).
+        await this.state.storage.delete(`pending:${env.op_id}`);
+      }
     }
+
     // Phase advance based on updated beliefs.
     const nextPhase = advancePhase(this.mission);
     if (nextPhase !== this.mission.phase) {
