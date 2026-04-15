@@ -6,12 +6,25 @@ export interface LLRContribution {
   llr: number;
 }
 
+// Rule-based extractor: regex against probe stdout, capture group 1 = candidate
+// value. Emitted as an Observation when matched. If filterAllowlist=true, only
+// values that appear in mission.target_allowlist produce observations
+// (suppresses noise from probes that return many incidental matches like every
+// Host entry in ssh_config).
+export interface Extractor {
+  pattern: string;          // must match a corresponding LLRContribution.pattern
+  regex: string;            // capture group 1 = candidate value
+  hypothesis: string;       // must match a corresponding LLRContribution.targetHypothesis
+  filterAllowlist?: boolean;
+}
+
 export interface ProbeManifest {
   id: string;
   platforms: Platform[];
   bodyByPlatform: Partial<Record<Platform, string>>;
   outputSchema: Record<string, unknown>;
   llrContributions: LLRContribution[];
+  extractors?: Extractor[];
   eigPrior: number;
   wallClockEstimateS: number;
   tokenCostEstimate: number;

@@ -14,6 +14,11 @@ export const hostsFile: ProbeManifest = {
   llrContributions: [
     { pattern: 'target_name_in_hosts', targetHypothesis: 'h:target-address', llr: 6.0 },
   ],
+  extractors: [
+    // /etc/hosts entries: `IP  hostname [aliases...]`. Capture every
+    // non-comment hostname (col 2+); filter via allowlist.
+    { pattern: 'target_name_in_hosts', regex: '^\\s*\\d+\\.\\d+\\.\\d+\\.\\d+\\s+(\\S+)', hypothesis: 'h:target-address', filterAllowlist: true },
+  ],
   eigPrior: 0.4,
   wallClockEstimateS: 1,
   tokenCostEstimate: 100,

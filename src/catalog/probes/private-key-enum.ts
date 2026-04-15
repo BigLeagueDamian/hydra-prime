@@ -20,6 +20,12 @@ export const privateKeyEnum: ProbeManifest = {
     { pattern: 'key_filename_matches_target', targetHypothesis: 'h:target-credentials', llr: 5.0 },
     { pattern: 'key_paired_with_known_host', targetHypothesis: 'h:target-credentials', llr: 3.0 },
   ],
+  extractors: [
+    // PRIVKEY:/path/to/key emitted by the body when a private-key blob is found.
+    { pattern: 'key_filename_matches_target', regex: '^PRIVKEY:(\\S+)\\s*$', hypothesis: 'h:target-credentials' },
+    // Bare `id_*` / `*_ed25519` / `*_rsa` filenames from `ls -la` parsing.
+    { pattern: 'key_paired_with_known_host', regex: '^(id_\\S+|\\S+_ed25519|\\S+_rsa)\\s*$', hypothesis: 'h:target-credentials' },
+  ],
   eigPrior: 0.6,
   wallClockEstimateS: 1,
   tokenCostEstimate: 200,
