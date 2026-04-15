@@ -73,3 +73,21 @@ export async function handleAdminExtend(req: Request, env: Env, missionId: strin
   await stub.fetch('https://do/extend', { method: 'POST', body: JSON.stringify({ extra_seconds, extra_budget_usd }) });
   return Response.json({ ok: true, extended: missionId });
 }
+
+export async function handleAdminList(req: Request, env: Env): Promise<Response> {
+  const auth = checkAdminAuth(req, env); if (auth) return auth;
+  const list = await env.HYDRA_KV.list({ prefix: 'mission-index:' });
+  const missions: { mission_id: string; started_ms: number; phase: string; honor_tier: string; jump_chain: string[] }[] = [];
+  for (const k of list.keys) {
+    const mission_id = k.name.slice('mission-index:'.length);
+    const meta = JSON.parse((await env.HYDRA_KV.get(k.name)) ?? '{}') as { started_ms: number };
+    const stub = env.MISSION_DO.get(env.MISSION_DO.idFromName(mission_id));
+    const stateRes = await stub.fetch('https://do/state');
+    if (stateRes.status === 200) {
+      const s = await stateRes.json() as { phase: string; honor_tier: string; jump_chain: string[] };
+      missions.push({ mission_id, started_ms: meta.started_ms, phase: s.phase, honor_tier: s.honor_tier, jump_chain: s.jump_chain });
+    }
+  }
+  missions.sort((a, b) => b.started_ms - a.started_ms);
+  return Response.json({ missions });
+}
