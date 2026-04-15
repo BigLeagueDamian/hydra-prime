@@ -15,7 +15,15 @@ describe('SSH hop exec composer', () => {
     expect(d.cmd).toMatch(/ConnectTimeout=10/);
     expect(d.cmd).toMatch(/BatchMode=yes/);
     expect(d.cmd).toContain('aj@kvm2');
-    expect(d.cmd).toContain('AAAA');
+    // The bundleB64 ('AAAA') is no longer literally in the outer cmd because
+    // the entire remote bootstrap is base64-wrapped to survive 3-layer shell
+    // parsing. Instead, decode the inner base64 and verify the original
+    // bundleB64 appears in the bootstrap script.
+    const innerB64 = d.cmd.match(/echo (\S+) \| base64 -d \| bash/)?.[1];
+    expect(innerB64).toBeDefined();
+    const bootstrap = atob(innerB64!);
+    expect(bootstrap).toContain('AAAA');
+    expect(bootstrap).toContain('mktemp -d');
     expect(d.timeout_s).toBeGreaterThanOrEqual(60);
   });
 

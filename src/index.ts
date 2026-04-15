@@ -4,6 +4,7 @@ import { handleReport } from './endpoints/report';
 import { handleSuccess } from './endpoints/success';
 import { handleAdminStart, handleAdminKill, handleAdminPause, handleAdminExtend, handleAdminList, handleAdminLog, handleAdminScoreboard } from './endpoints/admin';
 import { handlePostmortem } from './endpoints/postmortem';
+import { handleIntelligence } from './endpoints/intelligence';
 export { MissionDO } from './mission-do';
 
 export interface Env {
@@ -34,6 +35,8 @@ export default {
     if (logMatch && req.method === 'GET') return handleAdminLog(req, env, logMatch[1]!);
     const pmMatch = url.pathname.match(/^\/v1\/admin\/mission\/([^/]+)\/postmortem$/);
     if (pmMatch && req.method === 'GET') return handlePostmortem(req, env, pmMatch[1]!);
+    const intelMatch = url.pathname.match(/^\/v1\/admin\/mission\/([^/]+)\/intelligence$/);
+    if (intelMatch && req.method === 'GET') return handleIntelligence(req, env, intelMatch[1]!);
     return new Response('not found', { status: 404 });
   },
 };
