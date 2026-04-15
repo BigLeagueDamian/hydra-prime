@@ -1,4 +1,8 @@
 # Six primitives: register, poll, exec, read, report, terminate.
+# HYDRA_INSECURE_TLS=1 disables curl cert verification (DRY-RUN ONLY,
+# for hosts with stale CA bundles where the supervisor's LE cert won't validate).
+HYDRA_CURL_INSECURE_FLAG=""
+[ "${HYDRA_INSECURE_TLS:-0}" = "1" ] && HYDRA_CURL_INSECURE_FLAG="-k"
 
 hydra_json_escape() {
   python3 -c "import json,sys; sys.stdout.write(json.dumps(sys.stdin.read()))"
@@ -41,7 +45,7 @@ hydra_read_file() {
 
 hydra_register() {
   # $1=supervisor_url  $2=mission_id  $3=fingerprint  $4=platform  $5=version
-  curl -fsS -X POST "$1/v1/register" \
+  curl $HYDRA_CURL_INSECURE_FLAG -fsS -X POST "$1/v1/register" \
     -H 'Content-Type: application/json' \
     -d "{\"mission_id\":\"$2\",\"fingerprint\":\"$3\",\"platform\":\"$4\",\"version\":\"$5\"}"
 }
@@ -52,7 +56,7 @@ hydra_poll() {
   ts=$(date +%s)
   path="/v1/poll?mission=$2"
   sig=$(hydra_hmac_hex "$3" 'GET' "$path" '' "$ts")
-  curl -fsS "$1$path" -H "X-Hydra-Sig: $sig" -H "X-Hydra-Ts: $ts"
+  curl $HYDRA_CURL_INSECURE_FLAG -fsS "$1$path" -H "X-Hydra-Sig: $sig" -H "X-Hydra-Ts: $ts"
 }
 
 hydra_report() {
@@ -61,7 +65,7 @@ hydra_report() {
   ts=$(date +%s)
   body="{\"mission_id\":\"$2\",\"op_id\":\"$4\",\"ok\":$5,\"data\":$6,\"wall_ms\":0}"
   sig=$(hydra_hmac_hex "$3" 'POST' '/v1/report' "$body" "$ts")
-  curl -fsS -X POST "$1/v1/report" \
+  curl $HYDRA_CURL_INSECURE_FLAG -fsS -X POST "$1/v1/report" \
     -H "X-Hydra-Sig: $sig" -H "X-Hydra-Ts: $ts" -H 'Content-Type: application/json' \
     -d "$body"
 }
