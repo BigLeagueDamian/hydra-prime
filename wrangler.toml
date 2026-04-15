@@ -9,8 +9,8 @@ class_name = "MissionDO"
 
 [[migrations]]
 tag = "v1"
-new_classes = ["MissionDO"]
+new_sqlite_classes = ["MissionDO"]
 
 [[kv_namespaces]]
 binding = "HYDRA_KV"
-id = "PLACEHOLDER_TO_BE_FILLED_AFTER_CREATE"
+id = "f91e7f18f9274df789b7c7732301043c"
